@@ -1,0 +1,780 @@
+#load package
+library("dplyr")
+library("lattice")
+library("ggplot2")
+library("forcats")
+library("grid")
+library("ggmosaic")
+library("wordcloud")
+library("RColorBrewer")
+
+
+##Part I: Data processing
+###Q1: Import data to R and deal with missing values
+airbnb = read.csv(file="Airbnb Sydney.csv", header=TRUE, sep=",")
+
+#1.1
+sapply(airbnb, function(x) sum(x == ""))
+sapply(airbnb, function(x) sum(x == "N/A"))
+sapply(airbnb, function(x) sum(is.na(x)))
+sapply(airbnb, function(x) sum(x == "[]"))
+
+####1.1: According to the result above, we can find different types of missing values in following variables:
+#- **blank:** 664 in `neighborhood_overview`, 1639 in `house_rules`, 8 in `city`, 21 in `zipcode`, 621 in `cleaning_fee`.
+#- **N/A:** 2483 in `host_response_time`, 2483 in `host_response_rate`
+#- **NA:** 1 in `bathrooms`, 1 in `bedrooms`, 1 in `review_scores_rating,` 1 in `review_scores_accuracy`, 1 in `review_scores_cleanliness`, 1 in `review_scores_checkin` and 1 in `review_scores_communication`.
+#- **[]:** 8 in `host_verifications`.
+
+
+####1.2: I choose 3 different ways to deal with these missing values:
+#- For NAs in `cleaning_fee`, the missing values are continuous and the percentage is about 5%. The data of this variable are without trend and seasonality. So I prefer to **impute with mean**.
+#- For NAs in `neighborhood_overview` and `house_rules`, the missing values are categories and the percentage is over 5%. I prefer to **keep the NAs as a new level**.
+#- For NAs in `host_response_time` and `host_response_rate`, the percentage of missing value is over 20%. The information will lost much if I drop those observations. So I prefer to **keep the NAs as a new level**.
+#- For NAs in other variables, the percentage of missing value is very small. I prefer to **drop these observations**.
+
+
+####1.3: 
+#- When I impute NAs in `cleaning_fee` with mean, variance of the dataset reduces. 
+#- When I keep the NAs in `neighborhood_overview`, `house_rules`, `host_response_time` and `host_response_rate` as a new level, the whole dataset will not change. 
+#- When I drop the NAs in other variables, small part of the information in this dataset will lost.
+#### However generally after I deal with the missing data, the whole dataset will be easier to handle and analysis.
+
+####1.4-1.5
+#1.4
+# transfer all na to NA
+airbnb[airbnb=="N/A"] = NA
+airbnb[airbnb==""] = NA
+airbnb[airbnb=="[]"] = NA
+
+# change NA in cleaning_fee by mean
+airbnb$cleaning_fee = as.numeric(airbnb$cleaning_fee)
+missing1 = is.na(airbnb$cleaning_fee)
+airbnb$cleaning_fee[missing1] = mean(airbnb$cleaning_fee, na.rm= TRUE)
+
+# drop some observations
+airbnb = airbnb[complete.cases(airbnb[ , c(10,12,13,17,18,28:32)]),]
+
+# create a new level
+levels(airbnb$neighborhood_overview) = c(levels(airbnb$neighborhood_overview),"Not_Available")
+airbnb$neighborhood_overview[is.na(airbnb$neighborhood_overview)] = "Not_Available"
+levels(airbnb$house_rules) = c(levels(airbnb$house_rules),"Not_Available")
+airbnb$house_rules[is.na(airbnb$house_rules)] = "Not_Available"
+
+levels(airbnb$host_response_time)[levels(airbnb$host_response_time)=="N/A"] = "Not_Available"
+airbnb$host_response_time[is.na(airbnb$host_response_time)] = "Not_Available"
+levels(airbnb$host_response_rate)[levels(airbnb$host_response_rate)=="N/A"] = "Not_Available"
+airbnb$host_response_rate[is.na(airbnb$host_response_rate)] = "Not_Available"
+
+#1.5
+dim(airbnb)
+# 10775 observations and 36 variables.
+
+####1.6: Besides previous preparation, I think we can also deal with outliers of the dataset. Also there may be some duplicate observations and we can delete those observations. The type of some variables like `description` are 'factor' and we can change them to 'character' for further handling.
+
+### Q2:conduct a preliminary exploration of the dataset
+
+# Exclude variables "id", "description", "neighborhood_overview", "house_rules", "host_id", "host_since" and "amenities".(some are descriptive variables and some are just order number)
+summary(select(airbnb,-c(1:6,21)))
+
+####Q2: According to the summary above, I can find out some interesting things as following:
+#- Most of the average time needed for the host to response is with an hour(5728/10775)
+#- More than half of the average rate that the host responses is 100% (6648/10775)
+#- Nearly 80% of hosts are superhosts.(7988/10775)
+#- Most of ways that the host is verified have 'email', 'phone', 'reviews’.(10775-5212/10775) Many also have('jumio', 'government_id’) (10775-5212-1043/10775) 
+#- More than half of host identity are not verified. (5605/10775).
+#- Top 3 cities are Bondi Beach, Surry Hills and Sydney (555,499,456)
+#- Top 1 type of the listing is apartment(6198/10775). The second one is House(2597/10775)
+#- Most of room type is Entire home/apt (7893/10775)
+#- Median of the number of people allowed is 3. The mean is 3.755.
+#- Median of number of bathrooms is 1. Mean is 1.349.
+#- Median of number of bedrooms is 1. Mean is 1.63.
+#- Median of number of beds is 2. Mean of beds is 2.189. Interesting thing is the maximum of bathrooms are 10, bedrooms are 14, beds are 29.
+#- Most of bed type is real bed.(10699/10775)
+#- Top 3 of price are \$150(477),\$199(415),\$100(393)
+# - Mean of cleaning fee is \$128.3
+# - Over half of listings charge \$0 for extra people(5162/10775).
+# - Median minimum number of nights required for booking is 2. Interesting is max is 500 days
+# - Median of total number of reviews for the listing is 12. Mean is 28.94. Max is 493.
+# - Median of the overall scores rating for the listing is 96 over 100. mean is 94.2 over 100. The distribution of `review_scores_rating` is right skewed.
+# - The accuracy of the listing is basically high as the mean is 9.641. same as cleanliness, checkin, communication, location and value. all of these means are over 9.3/10.
+# - Most of cancellation policy is strict_14_with_grace_period (6062/10775).
+# - Mean of the number of reviews received per month is 1.573.
+
+
+###Q3:visualize the data
+
+# order the bars by decreasing frequency
+bar1= ggplot(mutate(airbnb, host_response_time = fct_infreq(host_response_time))) + geom_bar(aes(x = host_response_time))
+pie1 = ggplot(airbnb, aes(x=1, fill=host_response_time))+
+  geom_bar(width = 1)+
+  coord_polar("y")
+pie2 = ggplot(airbnb, aes(x=1, fill=host_is_superhost))+
+  geom_bar(width = 1)+
+  coord_polar("y")
+grid.newpage()  ##start a new page
+pushViewport(viewport(layout = grid.layout(2,2))) ####set page into 2*2 matrix
+vplayout <- function(x,y){
+  viewport(layout.pos.row = x, layout.pos.col = y)
+}
+print(bar1, vp = vplayout(1,1:2)) 
+print(pie1, vp = vplayout(2,1))
+print(pie2, vp = vplayout(2,2))
+
+# 1. I tried bar chart and pie chart for `host_response_time`. And I'll choose bar chart to visualize.
+# - First, it is suitable for visualizing such type of data relationship,-- one qualitative. 
+# - Second, the pie chart may be a bad option for this variable since each slice is aiming at different angles, making it hard to estimate the percentages, or do other detailed comparison. Bar chart can also be used in `city`, `property_type`, `room_type`, `bed_type`and `cancellation_policy`.
+# - However, for variables like `host_is_superhost` and `host_identity_verified`. I'll choose pie chart because these variables only have "True" of "False". Then we can clearly compare which one has larger percentage.
+
+
+# make host_response_rate a numeric variable
+airbnb$host_response_rate = gsub("\\%", "",airbnb$host_response_rate)
+airbnb$host_response_rate = as.numeric(airbnb$host_response_rate)
+par(mfrow = c(2,1))
+hist(airbnb$host_response_rate, 
+     main="Histogram for host_response_rate", 
+     xlab="airbnb$host_response_rate", 
+     col="lightpink", 
+     las=1, 
+     breaks=10)
+hist(airbnb$accommodates, 
+     main="Histogram for accommodates", 
+     xlab="accommodates", 
+     col="lightpink", 
+     las=1, 
+     breaks=15)
+
+
+# 2. For variables like: `host_response_rate`, `accommodates`, `bathrooms`,`bedrooms`,`beds`,`guests_included`,`minimum_nights`. I'll choose histogram to visualize. Since these are quantitive variables. Histogram may better show its frequency and trend.
+
+
+# make price a numeric variable
+airbnb$price = gsub("\\$", "",airbnb$price)
+airbnb$price = gsub(",", "", airbnb$price)
+airbnb$price = as.numeric(airbnb$price)
+hist(airbnb$price, 
+main="Histogram for price", 
+xlab="price", 
+col="lightpink", 
+las=1, 
+breaks=100)
+boxplot(airbnb$price, xlab = "price", main = "Boxplot of price")
+abline(h=mean(airbnb$price))
+points(mean(airbnb$price), col = "red")
+
+
+# 3. For vairables like `price`, `cleaning_fee`, `extra_people`,`number_of_reviews`and `review_scores_xxx`, I choose both histogram and boxplot.
+# - Since these are quantitive variables. Histogram may better show its frequency and trend.
+# - For boxplot we can see clearly the distribution of this vairable. And the outliers of this variable. For example in the boxplot of `price` we can see most price of listings are between \$100 and \$300. Also there are a lot of outliers. The highest price of listing is over \$10,000.
+
+#####According to the graphs, I find most of host_response_rate is 100%. Also, there are many outliers in vairables like `price`, `cleaning_fee`, `extra_people`,`number_of_reviews`and `review_scores_xxx`. 
+#####(Although most price of listings are between \$100 and \$300. There are also a lot of listings with price between \$300 and \$2,000. However the listings with price over \$2,000 are very rare.)
+
+###Q4:find relationships among several variables
+
+#4.1
+n_rpm = top_n(airbnb, 100, reviews_per_month)
+n_nor = top_n(airbnb, 100, number_of_reviews)
+# get overlap of top 100 "reviews_per_month" and "number_of_reviews"
+n_dep = dplyr::inner_join(n_rpm,n_nor,by="host_id")
+# find overlap length
+dim(n_dep)[1]
+
+
+####4.1:
+# - `reviews_per_month` is the number of reviews received per month.
+# - `number_of_reviews` is the total number of reviews for the listing.
+# - They both illustrate the number of reviews of the airbnb. But one is for per month and one is the overall amount. 
+# - According to the code result, there are 33 overlap ids of the host_ids in top 100 `review_per_month` and `number_of_reviews`. It seems that the host have top `review_per_month` may also have top `number_of_reviews`. However, they are not totally overlapped. I think `host_since` may be a inflencial factor for the difference. The airbnb that opened long time ago may only have a few reviews per month. But the total number of reviews may be large.
+
+
+#4.2
+# compare host_is_superhost and review_scores_rating
+aggregate(airbnb$review_scores_rating, list(airbnb$host_is_superhost), mean)
+
+# compare room_type and review_scores_rating
+aggregate(airbnb$review_scores_rating, list(airbnb$room_type), mean)
+
+# compare host_identity_verified and host_response_time
+ggplot(data = airbnb)+ geom_mosaic(aes(x = product(host_response_time, host_identity_verified),fill = host_response_time)) + scale_fill_brewer(palette = "PuRd") + theme_minimal() + labs(title = "mosaic plot") + labs(x ="host_identity_verified", y ="host_response_time")
+
+
+####4.2: I analyze `host_is_superhost` and `review_scores_rating`; `room_type` and `review_scores_rating`; `host_identity_verified` and `host_response_time`:
+# 1. The mean of `review_scores_rating` when hosts are superhosts is 97.07; The mean of `review_scores_rating` when hosts are not superhosts is 93.20. The rating score when hosts are superhosts is much higher than those airbnbs that hosts are not superhosts.
+# 2. The mean of `review_scores_rating` when room type is entire home or apartment is 94.15; The mean of `review_scores_rating` when room type is Private room is 94.62; The mean of `review_scores_rating` when room type is Shared room is 84.90. It seems that rating for shared room is the lowest. It's reasonable because basically shared rooms have worse condition.
+# 3. We can find that the amount of identity verified hosts and not veridied hosts are almost the same. What is interesting is that the proportion of hosts responsing within an hour in not verified hosts is higher than verified hosts. It shows identity verification may not impove the performance of hosts' response time. But it still needs further analysis.
+
+###Q5:make some (business) hypotheses
+#### According to our findings above:
+# - I think whether the host is a superhost or not will affect the number of reviews and the overall ratings a host get, I will check for each category of `host_is_superhost`, explore the relationship among `reviews_per_month` and `review_scores_rating`.
+# 
+# - I think the room type will affect the number of reviews and overall ratings a host get, I will check the relationship between `room_type`, `reviews_per_month` and `review_scores_rating`.
+# 
+# - I think the average time needed for the host to response will affect the number of reviews and the overall ratings a host get, I will check for each category of `host_response_time`, explore the relationship among `host_identity_verified`, and `review_scores_rating`.
+
+
+##Part II: Data analysis
+###Q6:visualize multiple variables and their relationships
+
+
+#6.1
+ggplot(data = airbnb, aes(x = review_scores_rating, y = number_of_reviews, color = property_type))+ geom_point(size=0.5)+ facet_wrap(~property_type)
+
+
+####6.1
+# - We can find that Most of the overall scores rating for the listing is over 60.
+# - Basically, there are positive correlation between "review_scores_rating" and "number_of_reviews".
+
+
+#6.2
+spl = split(airbnb$number_of_reviews, airbnb$property_type)
+sort(sapply(spl, length), decreasing = TRUE)[1:10]
+# The top 10 categories of “property_type” are Apartment, House, Townhouse, Condominium, Guest suite, Guesthouse, Loft, Villa, Bungalow and Cottage.
+selected = c("Apartment", "House", "Townhouse", "Condominium", "Guest suite", "Guesthouse", "Loft", "Villa", "Bungalow", "Cottage")
+new_data = airbnb[airbnb$property_type %in% selected, ]
+
+#ggplot(new_data, aes(x = property_type, y = reviews_per_month)) +geom_boxplot()
+et_p = ggplot(subset(new_data,new_data$room_type == "Entire home/apt")) + geom_boxplot(aes(x=property_type, y=reviews_per_month, fill=bed_type), position='dodge') + labs(title = "Entire home/apt")+ theme_minimal()
+
+pr_p = ggplot(subset(new_data,new_data$room_type == "Private room")) + geom_boxplot(aes(x=property_type, y=reviews_per_month, fill=bed_type), position='dodge') + theme_minimal() +labs(title = "Private room")
+
+sr_p = ggplot(subset(new_data,new_data$room_type == "Shared room")) + geom_boxplot(aes(x=property_type, y=reviews_per_month, fill=bed_type), position='dodge') + theme_minimal() +labs(title = "Shared room")
+
+grid.newpage()  ##start a new page
+pushViewport(viewport(layout = grid.layout(3,1))) ####set page into 2*2 matrix
+vplayout <- function(x,y){
+viewport(layout.pos.row = x, layout.pos.col = y)
+}
+print(et_p, vp = vplayout(1,1)) 
+print(pr_p, vp = vplayout(2,1))
+print(sr_p, vp = vplayout(3,1))
+
+
+####6.2: According to the plot above we can find:
+# 1. In average, the per month reviews of guest suite and guest house are highest among all property_type. The per month reviews of entire home/apt are highest among all room_type. The per month reviews of real bed are highest among all bed_type, while the per month reviews of futon is lowest.
+# 2. we can find out that for entire home/apt and private room, most bed type are real bed. For shared room, we can only find 3 bed types: "airbed", "pull-out safa" and "real bed"; and can only 4 property types: "apartment", "condominium", "house" and "townhouse".
+
+
+
+#6.3
+# `host_is_superhost`, `reviews_per_month` and `review_scores_rating`.
+ggplot(data = airbnb, aes(x = review_scores_rating, y = reviews_per_month, color = host_is_superhost))+ geom_point(size=0.5) + facet_wrap(~host_is_superhost)
+
+# `room_type`, `reviews_per_month` and `review_scores_rating`.
+ggplot(data = airbnb, aes(x = review_scores_rating, y = reviews_per_month, color = room_type))+ geom_point(size=0.5) + facet_wrap(~room_type)
+
+# `host_response_time`, `host_identity_verified`, and `review_scores_rating`.
+ggplot(airbnb) + geom_boxplot(aes(x=host_response_time, y=review_scores_rating, fill=host_identity_verified), position='dodge') + theme_minimal()
+
+####6.3
+# 1. `host_is_superhost`, `reviews_per_month` and `review_scores_rating`:
+# - Since `revies_per_month` and `review_scores_rating` are quantitive variables; `host_is_superhost` is a qualitative variable. I'll choose scatter plot to draw the plot. 
+# - One scatter plot shows relationship of `reviews_per_month` and `review_scores_rating` when hosts are superhosts. Another scatter plot shows relationship of `reviews_per_month` and `review_scores_rating` when hosts are not superhosts.
+# - We can see most of hosts are not superhost. Generally the rating and reviews per month of superhost are higher than non-superhost. We can rarely find review rating score of superhosts are below 80 over 100.
+# 
+# 2. `room_type`, `reviews_per_month` and `review_scores_rating`:
+#   - Since `revies_per_month` and `review_scores_rating` are quantitive variables; `room_type` is a qualitative variable. I'll choose scatter plot to draw the plot. 
+# - We can see most of room types are entire home/apt. Generally the rating and reviews per month of shared room are much lower than other 2 room types. Generally the higher the review rating scores are, the higher the amount of reviews per month.
+# 
+# 3. `host_response_time`, `host_identity_verified` and `review_scores_rating`:
+# - Since `host_response_time` and `host_identity_verified` are 2 qualitative variables; `review_scores_rating` is a quantitive variable. I'll choose box plot to draw the plot. 
+# - Different scatter plot shows relationship of `reviews_per_month` and `review_scores_rating` in different room types.
+# - We can see generally the review rating scores of different host response time are the similar. Though the rating scores when host is not verified and response a few days or more may be the lowest among all. Basically the average rating score of verified hosts are higher than not verified hosts. 
+
+
+###Q7:data manipulation
+
+####7.1-7.2
+
+#7.1
+# We have already did this step in q3
+airbnb$price = gsub("\\$", "",airbnb$price)
+airbnb$price = gsub(",", "", airbnb$price)
+airbnb$price = as.numeric(airbnb$price)
+
+#7.2
+char = as.character(airbnb$amenities)
+for (i in 1:length(char)) {
+  airbnb$number_of_amenities[i] = lapply(char[i], function(x) (length(gregexpr(",", char[i])[[1]])+1))
+}
+airbnb$number_of_amenities = as.numeric(airbnb$number_of_amenities)
+
+#7.3
+aggregate(airbnb$review_scores_rating, list(airbnb$cancellation_policy), mean)
+
+
+####7.3:
+# - Basically airbnbs with less strict cancellation policy have higher overall scores rating.
+# - The airbnbs with super_strict_30 cancellation policy get the lowest overall scores rating with only 80 over 100.
+
+####more data manipulation:
+# 1. Besides "price", we can also find variables "cleaning_fee" and "extra_people" have /$. And we try to delete it and convert the data type as numeric just as what we did in 7.1:
+
+airbnb$cleaning_fee = gsub("\\$", "",airbnb$cleaning_fee)
+airbnb$cleaning_fee = as.numeric(airbnb$cleaning_fee)
+airbnb$extra_people = gsub("\\$", "",airbnb$extra_people)
+airbnb$extra_people = as.numeric(airbnb$extra_people)
+
+
+# 2. Change the levels of "host_is_superhost" and "host_identity_verified" to more clearly levels
+
+levels(airbnb$host_is_superhost) = c("False","True")
+levels(airbnb$host_identity_verified) = c("False","True")
+
+
+# 3. Change the level of "host_response_time" in order
+
+airbnb$host_response_time = factor(airbnb$host_response_time,levels = c("within an hour","within a few hours","within a day","a few days or more","Not_Available"))
+
+
+# 4. We can find:
+
+levels(airbnb$city)[c(1,2,65:70,520)]
+
+
+# 1. some useless space/comma/etc characters in the coloumn of "city". 
+# 2. one observation have name in Chinese: "悉尼". 
+# 3. some observations contain "Sydney" actually represent the same place as those without "Sydney". Also we want to make the names in "city" case insensitive.
+# 
+# - So we delete useless characters(include "Sydney"), change the Chinese name to English and make all names of "city" in lower case.
+
+airbnb$city= tolower(airbnb$city)
+airbnb$city = gsub("\\•","",airbnb$city)
+airbnb$city = gsub(" ","",airbnb$city)
+airbnb$city = gsub(",sydney","",airbnb$city)
+airbnb$city = gsub("悉尼","sydney",airbnb$city)
+
+
+# 5. Seperate price into 5 levels: ("very low","low","medium","high","very high")
+
+order_price = sort.int(airbnb$price, decreasing = FALSE)
+level_1 = round(order_price[length(order_price)/5], digits = 0)
+level_2 = round(order_price[length(order_price)*2/5], digits = 0)
+level_3 = round(order_price[length(order_price)*3/5], digits = 0)
+level_4 = round(order_price[length(order_price)*4/5], digits = 0)
+airbnb$price_level[airbnb$price<level_1] = "very low"
+airbnb$price_level[airbnb$price>=level_1 & airbnb$price<level_2] = "low"
+airbnb$price_level[airbnb$price>=level_2 & airbnb$price<level_3] = "medium"
+airbnb$price_level[airbnb$price>=level_3 & airbnb$price<level_4] = "high"
+airbnb$price_level[airbnb$price>=level_4] = "very high"
+
+
+###Q8: fit simple linear models
+
+##### I'll choose "reviews_per_month" as my primary indicator. For example, A is a property of airbnb already open for 5 years. Each month A have 15 reviews. B is a property of airbnb started a year ago. Each month B have 50 reviews. The overall number of reviews of A may be higher than B(15*5*12>50*12). But clearly B is more popular among guests.
+
+##### The variables I think will affect the primary indicator are:
+
+# 1. host_since: The Longer the host started to be a host in Airbnb, the more reliable the host is. The more people will prefer to live in the property of this host and will get more reviews per month.
+# 2. host_response_time: The shorter the average time needed for the host to response, the more likely will customers be satisfied. And maybe they will be more likely to give reviews.
+# 3. host_response_rate: Maybe people prefer to choose property with higher average rate of host's responses. And these properties will get more reviews per month.
+# 4. host_is_superhost: Maybe people prefer to choose property whose host is a "superhost". And these properties with super host will get more reviews per month.
+# 5. room_type: The type of room may affect "reviews_per_month". Type like entire room or private room may be more popular among people. And these listings may get more reviews per month.
+# 6. number_of_amenities: The total number of amentities offered may affect "reviews_per_month". Maybe people prefer to choose property with more amentities.  And these listings may get more reviews per month.
+# 7. bed_type: The type of bed may affect "reviews_per_month". Type like real bed may be more popular among people. And these listings may get more reviews per month.
+# 8. price: The price may affect "reviews_per_month". People may more likely to choose an airbnb with fair price. And these listings may get more reviews per month.
+# 9. review_scores_rating: Maybe people prefer to choose property with higher average rate. And this kind of properties will get more reviews per month.
+# 10. cancellation_policy: Maybe people prefer to choose property with less strict cancellation policy. And this kind of properties will get more reviews per month.
+
+##### I think the new variable `number_of_amenities` is the most promising variable. Generally people would be more likely to live in the airbnb with more amentities and it will affect the pupularity of this airbnb. Then it may reflect on the reviews_per_month.
+
+
+airbnb_lm = lm(reviews_per_month ~ number_of_amenities, data = airbnb)
+summary(airbnb_lm)
+par(mfrow = c(2,2))
+plot(airbnb_lm)
+
+
+# - As the p-value is much less than 0.05, we reject the null hypothesis that β = 0. Hence there is a significant relationship between the variable "reviews_per_month" and "number_of_amenities".
+# - Residuals vs Fitted plot shows if residuals have non-linear patterns. The residuals are not “bounce randomly” around the 0 line. More dots are positioned above 0 line. This suggests that this model doesn't fit well.
+# - Normal Q-Q shows if residuals are normally distributed. We can see gradually the standardized residuals do not lie on the line, which indicates that the random error may not normally distributed.
+# - Scale-Location shows if residuals are spread equally along the ranges of predictors. Residual of `9946`, `10238` and `4241` stands out from the basic random pattern of residuals. This suggests that they are influential.
+
+
+##Part III: Further analysis
+###Q9: explore variables increase bookings
+
+#####  Firstly, according to the airbnb website (https://zh.airbnb.com/help/article/829/how-do-i-become-a-superhost), in order to become a superhost, the host should:
+# 1. completed at least 10 trips OR successfully completed 3 reservations that total at least 100 nights
+# 2. Maintained a 50% review rate or higher
+# 3. Maintained a 90% response rate(response in 24h) or higher
+# 4. Zero cancellations, with exceptions made for those that fall under our Extenuating Circumstances policy
+# 5. Maintain a 4.8 overall rating You don't need to maintain a 50% review rate on Open Homes reservations to qualify for Superhost status.
+
+####9.1:
+
+# relationship between `host_is_superhost` and `host_since_year`
+# I'll add a new column named "host_since_year" to show the year of date that the host starts to be a host in Airbnb.
+airbnb$host_since_year = as.numeric(as.character(as.Date(airbnb$host_since, format = "%m/%d/%Y"), format="%Y"))
+table1 = table(airbnb$host_is_superhost, airbnb$host_since_year)
+prop.table(table1,margin=2)
+
+
+# - We can see the proportion of superhost is basically gradually increase as time went by. 
+# - The proportion of superhost in 2010 is about 17.7%, while in 2017 the proportion is over 30%. 
+# - Although in 2018 the proportion of superhost went down to 17.9%. We can still say as time went by, hosts are focus more on their service (to get higher response rate and higher rating score) to customers.
+
+
+# relationship between `host_is_superhost` and `host_response_time`
+table2 = table(airbnb$host_is_superhost, airbnb$host_response_time)
+prop.table(table2,margin=2)
+
+
+# - We can see that the sooner the hosts response, the proportion of superhost among these hosts is higher.
+# - In hosts response within an hour, the proportion of superhost is about 32.8%, while in hosts response a few days or more the proportion is only 8.4%. 
+# - It's reasonale since superhosts need to maintain a 90% response rate(response in 24h) or higher.
+
+
+# relationship between `host_is_superhost` and `host_response_rate`
+# try divide `host_response_rate` every 10% and group it into 10 parts.
+table3 = table(airbnb$host_is_superhost, airbnb$host_response_rate)
+table4 = matrix(0, nrow = 2, ncol = 10)
+rownames(table4) = c("False", "True")
+colnames(table4) = c("<10%","10%-20%", "20%-30%", "30%-40%", "40%-50%","50%-60%","60%-70%","70%-80%","80%-90%","90%-100%")
+
+for (i in 1:length(colnames(table3))){
+if (as.numeric(colnames(table3))[i] < 10){
+table4[1,1] = table3[1,i] +table4[1,1]
+table4[2,1] = table3[2,i] +table4[2,1]
+} else if(as.numeric(colnames(table3))[i] < 20){
+table4[1,2] = table3[1,i] +table4[1,2]
+table4[2,2] = table3[2,i] +table4[2,2]
+} else if(as.numeric(colnames(table3))[i] < 30){
+table4[1,3] = table3[1,i] +table4[1,3]
+table4[2,3] = table3[2,i] +table4[2,3]
+} else if(as.numeric(colnames(table3))[i] < 40){
+table4[1,4] = table3[1,i] +table4[1,4]
+table4[2,4] = table3[2,i] +table4[2,4]
+} else if(as.numeric(colnames(table3))[i] < 50){
+table4[1,5] = table3[1,i] +table4[1,5]
+table4[2,5] = table3[2,i] +table4[2,5]
+} else if(as.numeric(colnames(table3))[i] < 60){
+table4[1,6] = table3[1,i] +table4[1,6]
+table4[2,6] = table3[2,i] +table4[2,6]
+} else if(as.numeric(colnames(table3))[i] < 70){
+table4[1,7] = table3[1,i] +table4[1,7]
+table4[2,7] = table3[2,i] +table4[2,7]
+} else if(as.numeric(colnames(table3))[i] < 80){
+table4[1,8] = table3[1,i] +table4[1,8]
+table4[2,8] = table3[2,i] +table4[2,8]
+} else if(as.numeric(colnames(table3))[i] < 90){
+table4[1,9] = table3[1,i] +table4[1,9]
+table4[2,9] = table3[2,i] +table4[2,9]
+} else{
+table4[1,10] = table3[1,i] +table4[1,10]
+table4[2,10] = table3[2,i] +table4[2,10]
+}
+}
+table4
+prop.table(table4,margin=2)
+
+
+# - We can see that the most of response rating is over 90%. 
+# - And the proportion of superhost among rating over 90% is the highest(more than 30%); the hosts of response rating less than 50% are almost all not superhost. 
+# - It's reasonale since superhosts need to maintain a 90% response rate(response in 24h) or higher.
+
+
+
+# relationship between `host_is_superhost` and `host_verifications`
+# I'll add a new coloumn named "number_of_verification" to show total amount of verification ways of each listing.
+char2 = as.character(airbnb$host_verifications)
+for (i in 1:length(char2)) {
+  airbnb$number_of_verification[i] = lapply(char2[i], function(x) (length(gregexpr(",", char2[i])[[1]])+1))
+}
+airbnb$number_of_verification = as.numeric(airbnb$number_of_verification)
+mean(airbnb$number_of_verification[airbnb$host_is_superhost == "True"])
+mean(airbnb$number_of_verification[airbnb$host_is_superhost == "False"])
+
+
+# - We can see when hosts are superhosts, the mean of verification ways amount is 6.21.
+# - when hosts are not superhosts, the mean of verification ways amount is 5.70. 
+# - The relationship between `superhost` and `host_identity_verified` is not that obvious. However, we can still see when the host is superhost, the average amount of verification ways is higher.
+
+
+# relationship between `host_is_superhost` and `host_identity_verified`
+table6 = table(airbnb$host_is_superhost, airbnb$host_identity_verified)
+prop.table(table6, margin = 2)
+
+
+# - The proportion of superhost when then host is verified is 27.8% while the proportion of not superhost when host is verified is 24.1%. 
+# - The relationship between `host_is_superhost` and `host_identity_verified` is not that obvious. 
+# - However, we can still see when the host is verified, the probability of the host is superhost is higher.
+
+
+
+#9.2
+ggplot(data = airbnb)+ geom_mosaic(aes(x = product(host_response_time, host_is_superhost),fill = host_response_time)) + scale_fill_brewer(palette = "PuRd") + theme_classic() + labs(title = "mosaic plot") + labs(x ="host_is_superhost", y ="host_response_time") + theme(plot.title = element_text(hjust = 0.5, size = 12),
+                                                                                                                                                                                                                                                                            axis.text.x = element_text(angle = 50, vjust = 1, hjust = 1))
+
+
+####9.2
+# - We can find that more hosts of listing are not superhosts.
+# - Compared to hosts who are not superhosts, higher percentage of superhosts will response within an hour; less percentage of superhosts will response a few days or more. So in average superhosts indeed give better service to customers.
+
+###Q10: explore factors affect the price and the rating of the listings
+
+#10.1
+stop_words = c("a"," able", "about", "across", "after", "all", "almost", "also", "am", "among", "an", "and", "any", "are", "as", "at", "be", "because", "been", "but", "by", "can", "cannot", "could", "dear", "did", "do", "does", "either", "else", "ever", "every", "for", "from", "get", "got", "had", "has", "have", "he", "her", "hers", "him", "his", "how", "however", "i", "if", "in", "into", "is", "it", "its", "just", "least", "let", "like", "likely", "may", "me", "might", "most", "must", "my", "neither", "no", "nor", "not", "of", "off", "often", "on", "only", "or", "other", "our", "own", "rather", "said", "say", "says", "she", "should", "since", "so", "some", "than", "that", "the", "their", "them", "then", "there", "these", "they", "this", "is", "to", "too", "was", "us", "wants", "was", "we", "were", "what", "when", "where", "which", "while", "who", "whom", "why", "will", "with", "would", "yet", "you", "your")
+
+token = strsplit(as.character(airbnb$description), "[^[:alpha:]]")
+word_freq = as.data.frame(table(tolower(unlist(token))))
+word_freq = word_freq[-(word_freq$Var1 == ''),]
+
+stop_word_position = c() 
+for(i in 1:length(stop_words)){
+  stop_word_position = c(stop_word_position,which(word_freq$Var1 == stop_words[i]))
+}
+freq_without_sw = word_freq[-stop_word_position,]
+arrange(freq_without_sw, desc(Freq))[1:10,]
+
+
+#### 10.1: According to the top 10 frequency above, we can find:
+# - `bedroom`, `kitchen`, `room`, `bed` are in the top 10 frequency words in description. It means in airbnb introduction, hosts will focus on the internal structure of airbnb. It's reasonable since the role of airbnb is to provide a sleep place for traveler.
+# - `walk`, `beach` are in the top 10 frequency words in description. It means in airbnb introduction, hosts will also pay attention to the outside environment of theirs airbnb. Like the convenient transportation and unique sceneries.
+
+
+# 10.2
+list_beach = airbnb[grep(pattern = "beach",airbnb$description),]
+mean(list_beach$price)
+#239.9151
+list_without = airbnb[-grep(pattern = "beach",airbnb$description),]
+mean(list_without$price)
+#183.415
+
+
+#### 10.2:
+# - The average price when "beach" is included in `description` is $239.9.
+# - The average price when "beach" is not included in `description` is $183.4
+# - We can see the average `price` of those with these words are higher than those without.
+
+
+# General function to get the specific word frequency
+freq_fun = function(text,word){
+token = strsplit(as.character(text), "[^[:alpha:]]")
+word_freq = as.data.frame(table(tolower(unlist(token))))
+word_freq = word_freq[-(word_freq$Var1 == ''),]
+return(freq_without_sw[which(freq_without_sw$Var1 == word),])
+}
+
+
+#### 10.3:
+
+#10.3
+# average price with balcony and without balcony
+list_balcony = airbnb[grep(pattern = "balcony",airbnb$description),]
+print(paste0("Average price of description contains 'balcony' is $", round(mean(list_balcony$price),2),"."))
+#193.0584
+list_withoutb = airbnb[-grep(pattern = "balcony",airbnb$description),]
+print(paste0("Average price of description without 'balcony' is $", round(mean(list_withoutb$price),2),"."))
+#206.667
+
+# average price with restaurant and without restaurant
+list_restaurant = airbnb[grep(pattern = "restaurant",airbnb$description),]
+print(paste0("Average price description contains 'restaurant' is $", round(mean(list_restaurant$price),2),"."))
+#186.9808
+list_withoutr = airbnb[-grep(pattern = "restaurant",airbnb$description),]
+print(paste0("Average price of description without 'restaurant' is $", round(mean(list_withoutr$price),2),"."))
+#214.8459
+
+# average price with huge|large|big and without huge|large|big
+list_large = airbnb[grep("huge|large|big",airbnb$description),]
+print(paste0("Average price description contains 'large','huge' or'big' is $", round(mean(list_large$price),2),"."))
+#220.86
+list_withoutl = airbnb[-grep("huge|large|big",airbnb$description),]
+print(paste0("Average price of description without 'large','huge' and'big' is $", round(mean(list_withoutl$price),2),"."))
+#191.99
+
+
+# - Average price of listings that contain "balcony" in "description" are slightly lower than those do not contain "balcony". 
+# - Average price of listings that contain "restaurant" in "description" are slightly lower than those do not contain "restaurant".
+# - Average price of listings that contain "huge", "large" or "big" in "description" are slightly higher than those do not contain "large".
+
+##### The first 2 findings are unexpected because I thought if hosts mentioned "balcony" or "restaurant" in their description of airbnb, they may want to show better insight and outside amentities of their proporties. And it may mean higher price of the airbnb. But in reality the result is different.
+
+##### The third finding is reasonable since the airbnb with description "huge", "large" or "big" may mean it has larger areas. Then the price may be higher than those without word "huge", "large" or "big".
+
+
+####10(2)
+
+####10(2).1: I'll choose `city` to explore location because same zip code may reflect the more than one city. And `city` is more intuitive, the result may be more understandable. And we can do further discussion.
+
+
+#10(2).1
+number = sort(table(airbnb$city), decreasing = TRUE)[1:100]
+rating = c()
+for (i in 1:length(names(number))){
+  n_review = airbnb$number_of_reviews[airbnb$city == names(number)[i]]
+  review_rate = airbnb$review_scores_rating[airbnb$city == names(number)[i]]
+  wt = n_review/sum(n_review)
+  rating[i] = weighted.mean(review_rate, wt)
+}
+wg_rating = rbind(number, rating)
+names(rating) = c(1:100)
+barplot(rating,col = heat.colors(100),ylim = c(90,100), main = "top 100 locations' rating")
+
+
+number = sort(table(airbnb$city), decreasing = TRUE)[1:200]
+rating = c()
+for (i in 1:length(names(number))){
+  n_review = airbnb$number_of_reviews[airbnb$city == names(number)[i]]
+  review_rate = airbnb$review_scores_rating[airbnb$city == names(number)[i]]
+  wt = n_review/sum(n_review)
+  rating[i] = weighted.mean(review_rate, wt)
+}
+names(rating) = c(1:200)
+barplot(rating,col = heat.colors(200),ylim = c(90,100), main = "top 200 locations' rating")
+
+
+# - It's unexpected that I can't see clearly trend of the rating of top 100 locations. 
+# - In top 200 locations'rating, we can see from the barplot that many locations with lower ranks have higher review rating scores. 
+# - It seems that top listing doesn't necessarily coincides with top weighted means of rating.
+
+####10(2).2:
+
+#10(2).2
+arrange(freq_without_sw, desc(Freq))[c(21,54),]
+
+
+##### We can see word "private" and "new" are the 21st and 54th most frequent words in description.
+##### So firstly, I'll choose "private" in `description` and find the difference in `review_scores_rating` between those with this word and those without.
+
+
+
+#10(2).2
+# "private" in description
+list_private = airbnb[grep(pattern = "private",airbnb$description),]
+mean(list_private$review_scores_rating)
+#94.93
+list_withoutp = airbnb[-grep(pattern = "private",airbnb$description),]
+mean(list_withoutp$review_scores_rating)
+#93.91
+
+
+##### The average `review_scores_rating` of those with word "private" are higher than those without. 
+
+##### Since "private" have relationship with room environment, I'll find relationship between `room_type` and `review_scores_rating`.
+
+##### Actually I have already tried to find the relationship between `room_type` and `review_scores_rating` in Q4. But in Q4 I just use the mean, not the weighted means of `review_socres_rating`. I'll use weighted mean this time.
+
+
+rating_p = c()
+for (i in 1:3){
+  n_review_p = airbnb$number_of_reviews[airbnb$room_type == levels(airbnb$room_type)[i]]
+  review_rate_p = airbnb$review_scores_rating[airbnb$room_type == levels(airbnb$room_type)[i]]
+  wt_p = n_review_p/sum(n_review_p)
+  rating_p[i] = weighted.mean(review_rate_p, wt_p)
+}
+names(rating_p) = levels(airbnb$room_type)
+bar1 = barplot(rating_p,col = heat.colors(3), ylim = c(80,100), main = "different room type's rating") 
+text(bar1, rating_p/1.05, labels = round(rating_p, digits = 2))
+
+
+##### We can see the weighted means of rating scores for shared room is still much lower than entire home/apt and private room. So room type does have relationship with `review_scores_rating`.
+
+##### Secondly, I'll choose "new" in `description` and find the difference in `review_scores_rating` between those with this words and those without.
+
+
+#new
+list_new = airbnb[grep(pattern = "new",airbnb$description),]
+mean(list_new$review_scores_rating)
+list_withoutn = airbnb[-grep(pattern = "new",airbnb$description),]
+mean(list_withoutn$review_scores_rating)
+airbnb$host_since_year = as.factor(airbnb$host_since_year)
+
+
+##### The average `review_scores_rating` of those with these words are a little bit high than those without. 
+
+##### Word "new" may have relationship with airbnb construction date. Since we do not know the construction date of listing,  I'll find relationship between `host_since_year` and `review_scores_rating`.
+
+
+rating_n = c()
+for (i in 1:10){
+  n_review_n = airbnb$number_of_reviews[airbnb$host_since_year == levels(airbnb$host_since_year)[i]]
+  review_rate_n = airbnb$review_scores_rating[airbnb$host_since_year == levels(airbnb$host_since_year)[i]]
+  wt_n = n_review_n/sum(n_review_n)
+  rating_n[i] = weighted.mean(review_rate_n, wt_n)
+}
+names(rating_n) = levels(airbnb$host_since_year)
+bar2 = barplot(rating_n,col = heat.colors(10), ylim = c(80,100), main = "different room type's rating") 
+text(bar2, rating_n/1.05, labels = round(rating_n, digits = 2))
+
+
+
+##### We can see basically the weighted means of rating scores is higher for new host.
+
+##### The listings with host started to be a host before 2011 have the lowest 2 weighted rating score: 92.94 and 94.27. 
+
+##### In gerenal, host started to a host in 2014 and 2015 have the highest 2 weighted rating score: 95.02 and 95.22. 
+
+##### One thing is noteworthy is that weighted means of rating scores of host started to be a host after 2015 have a decreasing trend.
+
+
+##Part IV: Your turn
+
+# 1. According to Q9, Airbnb says, "On average, Superhosts earn up to 22% more than other hosts. For some, that can mean as much as $1,250 in extra income."(https://www.airbnb.com/superhost).
+# 
+# So I tried to figure out if being superhost increase their income. Suppose hosts' income is equal to `reviews_per_month`*`price`:
+
+mean((airbnb$reviews_per_month[airbnb$host_is_superhost == "True"])*(airbnb$price[airbnb$host_is_superhost == "True"]))
+mean((airbnb$reviews_per_month[airbnb$host_is_superhost == "False"])*(airbnb$price[airbnb$host_is_superhost == "False"]))
+
+##### The mean income of superhosts is $427.64 per month; The mean income of non-superhosts is $228.16 per month. It seems that superhosts can really earn more than non-superhosts.
+
+
+# 2. I tried to find the most remarkable words for top 100 locations' description.
+
+
+top_100 = names(sort(table(airbnb$city), decreasing = TRUE)[1:100])
+token_100 = strsplit(as.character(airbnb$description[airbnb$city %in% top_100]), "[^[:alpha:]]")
+word_freq_100 = as.data.frame(table(tolower(unlist(token_100))))
+word_freq_100 = word_freq_100[-(word_freq_100$Var1 == ''),]
+
+stop_word_position_100 = c() 
+for(i in 1:length(stop_words)){
+  stop_word_position_100 = c(stop_word_position_100,which(word_freq_100$Var1 == stop_words[i]))
+}
+freq_without_sw_100 = word_freq_100[-stop_word_position_100,]
+wordcloud(freq_without_sw_100$Var1,freq_without_sw_100$Freq, scale=c(3,.7), min.freq = 2000,
+          random.order=FALSE, colors=brewer.pal(8, "Dark2"))
+
+
+##### Based on the wordcloud, we can see the most remarkable words in description of Sydney airbnbs are `apartment`, `sydney`, `beach`, `bedroom`, `walk`, `kitchen` and `bed`. 
+
+
+##Part V: Conclusion
+#####According to the findings in my project:
+# 1. It seems that superhosts can really earn more than non-superhosts. So hosts should pay efforts to become superhosts in order to earn more income.
+# 2. In order to make their airbnb in popular location, host may need to choose location near beach, have isolate bedroom and kitchen.
+# 3. However, popular location does not always mean higher review score rating. Host may provide entire home/apt or private room in order to increase their review score rating.
+
+##Part VI: Clearly the explain and describe the Lifecycle of Data Science for this project
+
+# 1. Data Exploration and Preparation：
+# In Q1, we did the data preparation--handle missing values in data. Missing data in dataset may reduce the power of a model because we may not analyse the relationship between different variables correctly. It can lead to wrong classification result. And we used 3 different ways to handle the missing values: deletion, imputing NAs with mean and keeping NAs as a new level. In Q2, we did data exploration, trying to find their basic properties. We indentified the data type and category of "airbnb" dataset variables. We have character variables like `description`, `"neighborhood_overview`, etc. Numeric variables like `price`. Also we found lots of variables are category variables, like `host_response_time`, `host_is_superhost`, etc.
+# 
+# 2. Data Representation and Transformation 
+# In Q3, we did data representation to show the interesting and useful structures of each variables. In Q7, we did data transformation and aggregation. We changed some variables' type to numeric and added 2 new variables `number_of_amentities` as well as `price_level` for further analysis. In Q10, we did data transformation to look at patterns of word distribution and frequent words occurrence in variable `description`.
+# 
+# 3. Computing with Data
+# In Q9, we computed with data, trying to transform and manipulate text inside the `description` variable. Calculating proportion of `superhost` in different years, different response time and reponse rate to analyse the relationship between `host_is_superhost` and other variables.
+# 
+# 4. Data Modeling
+# In Q8, we try to build a simple linear model to gain insights about how `number_of_amentities` affects `review_per_month`.
+# 
+# 5. Data Visualization and Presentation
+# In Q4, Q6, we did data visualization to find relationships among several variables. We used mosaic plot, scatter plot and boxplot. In Q10, we built bar chart to find relationship between top locations and `review_scores_rating`. In Q5, we made hyothesis to make further visualization.
+# 
+# 6. Science about Data Science
+# In Q10, we find words frequency of occurrence in data and try to find relationship between these words and `review_scores_rating`. Then we made conclusion based on all previous analysis.
+
+
+
+
+
+
+
+
+
+
+
+
+

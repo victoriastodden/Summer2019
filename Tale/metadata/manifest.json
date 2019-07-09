@@ -1,0 +1,71 @@
+{
+    "createdBy": {
+        "schema:email": "yangy9@illinois.edu",
+        "@type": "schema:Person",
+        "schema:givenName": "Yang",
+        "@id": "yangy9@illinois.edu",
+        "schema:familyName": "Yu"
+    },
+    "Datasets": [],
+    "@id": "https://data.wholetale.org/api/v1/tale/5d225269cc895d0f743532e5",
+    "schema:author": [
+        {
+            "@type": "schema:Person",
+            "schema:givenName": "Yang",
+            "@id": "none",
+            "schema:familyName": "Yu"
+        }
+    ],
+    "schema:category": "science",
+    "schema:image": "https://lorempixel.com/400/400/abstract/",
+    "schema:name": "IS457_SP19_138",
+    "aggregates": [
+        {
+            "mimeType": "application/octet-stream",
+            "md5": "c7ed9d1e068ba72db2ecdf0bedda5ae3",
+            "size": 45757,
+            "uri": "../workspace/IS457_SP19_138.R"
+        },
+        {
+            "mimeType": "application/octet-stream",
+            "md5": "9223f094907bf020bb57f948944ef503",
+            "size": 45952,
+            "uri": "../workspace/IS457_SP19_138.Rmd"
+        },
+        {
+            "mimeType": "text/csv",
+            "md5": "a4483efc45e3a5876e978fc0c9509251",
+            "size": 25242480,
+            "uri": "../workspace/Airbnb Sydney.csv"
+        },
+        {
+            "mimeType": "text/plain",
+            "md5": "81faaedac351f28092bd845a48c6d0a5",
+            "size": 170,
+            "uri": "../LICENSE",
+            "schema:license": "CC-BY-4.0"
+        },
+        {
+            "mimeType": "text/plain",
+            "@type": "schema:HowTo",
+            "md5": "31472e126eb38a011adf0918cf6e2607",
+            "size": 44,
+            "uri": "../README.md"
+        }
+    ],
+    "@context": [
+        "https://w3id.org/bundle/context",
+        {
+            "schema": "http://schema.org/"
+        },
+        {
+            "Datasets": {
+                "@type": "@id"
+            }
+        }
+    ],
+    "schema:identifier": "5d225269cc895d0f743532e5",
+    "createdOn": "2019-07-07 20:13:29.894000",
+    "schema:version": 7,
+    "schema:description": "### Final Project of IS457"
+}
