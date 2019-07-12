@@ -66,7 +66,7 @@
  - digits_cls.pkl
  - output.jpg
 
-### 4.Sumatra
+### 4.Sumatra -- need to install bazaar and need python2.6???
 #### 1) Original upload
 1.
 
@@ -79,6 +79,28 @@
 #### 2) Bundle
 1. https://occam.cs.pitt.edu/QmS9BPf6AGk1qZ3tht541211DY2yQi7UzJ6eZqGZGQ3xy4/5dt2r3Nq9kKrXfbbmucY3JKvTDF8oh?embed=true&link=93
 
+### 6.Sciunit
+#### 1) Original upload
+1. test.sh
+
+#### 2) Bundle
+##### Capture this program `test.sh` with Sciunit:
+`$ sciunit exec ./test.sh`
+
+##### The program has been captured as e1. Copy that.
+`$ sciunit copy`
+
+##### It returns a list of code (9MREvd#). Use the code on another machine, and one can execute the program again.
+`$ sciunit open 9MREvd#`
+
+##### The new package includes things as following:
+
+1. Project1__WFC3nf
+ - e1.json
+ - sciunit
+ - vvpkg.bin
+ - vvpkg
+ 
 ### 7.Binder
 #### 1) Original upload
 
