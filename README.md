@@ -28,7 +28,7 @@ Mentors: Prof. Victoria Stodden, University of Illinois at Urbana-Champaign
 
 **2**: I. Jimenez, M. Sevilla, N. Watkins, C. Maltzahn, J. Lofstead, K. Mohror, A. Arpaci-Dusseau and R. Arpaci-Dusseau. (2017). The Popper Convention: Making Reproducible Systems Evaluation Practical. IEEE International Parallel and Distributed Processing Symposium Workshops (IPDPSW), 1561–70. https://doi.org/10.1109/IPDPSW.2017.157.
 
-**3**: F. Chirigati, D. Shasha and J. Freire, (2013). ReproZip: Using Provenance to Support Computational Reproducibility, 5th USENIX Workshop on the Theory and Practice of Provenance.
+**3**: ReproZip: Computational Reproducibility With Ease, F. Chirigati, R. Rampin, D. Shasha, and J. Freire. In Proceedings of the 2016 ACM SIGMOD International Conference on Management of Data (SIGMOD), pp. 2085-2088, 2016.
 
 **4**: A. P Davison, M Mattioni, D Samarkanov, B Tele'nczuk. (2014). Sumatra: A Toolkit for Reproducible Research. In Implementing Reproducible Research, Eds: Stodden, V and Leisch, F and and Chapman, R D Peng, pp.57-79
 
